@@ -325,7 +325,7 @@ df, filters_used, co3_thr = build_filters_sidebar(data)
 # -----------------------------
 # Filters used
 # -----------------------------
-with st.expander("Filters used (Audit trail)", expanded=True):
+with st.expander("Filters used (Audit trail)", expanded=False):
     st.json(filters_used)
     st.download_button(
         "Download filters (JSON)",
