@@ -1,0 +1,45 @@
+# ============================
+# Data files (do NOT upload)
+# ============================
+
+*.xlsx
+*.xls
+*.csv
+*.parquet
+*.feather
+
+# If you want to ignore only a specific file:
+# q32025updbuffer.xlsx
+
+# ============================
+# Python
+# ============================
+
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+venv/
+.env/
+.venv/
+
+# ============================
+# Streamlit local config
+# ============================
+
+.streamlit/secrets.toml
+
+# ============================
+# OS files
+# ============================
+
+.DS_Store
+Thumbs.db
+
+# ============================
+# Jupyter
+# ============================
+
+.ipynb_checkpoints/
