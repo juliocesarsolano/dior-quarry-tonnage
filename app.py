@@ -267,39 +267,42 @@ def tabulate(df: pd.DataFrame, group_cols: list[str]) -> pd.DataFrame:
 
 def assign_raw_destination(row: pd.Series, co3_threshold: float = 1.0) -> str:
     """
-    Raw-litho destination classification (for Summary tab) based on:
-      - Filter:  (mdi|gbdi) + (aw_1|aw_2) + NPAG + CO3 < threshold
-      - Rockfill:(mdi|gbdi) + (aw_1|aw_2) + NPAG + CO3 >= threshold
-      - Waste_NAG: (mf|cv) + (aw_3 or worse) + NPAG
-      - Waste_PAG: (mf|cv) + (aw_3 or worse) + PAG
-    Everything else -> Other
+    Raw-litho destination classification (4 bins only):
+
+    FILTER:
+      (LITHO in {mdi, gbdi}) AND (WEATHERING in {aw_1, aw_2}) AND (NPR_TYPE == NPAG)
+      AND (CO3_PCT < co3_threshold)
+
+    ROCKFILL:
+      (LITHO in {mdi, gbdi}) AND (WEATHERING in {aw_1, aw_2}) AND (NPR_TYPE == NPAG)
+      AND (CO3_PCT >= co3_threshold)
+
+    WASTE_NAG:
+      Everything else with NPR_TYPE == NPAG (including mf/cv, other lithos, other weathering)
+
+    WASTE_PAG:
+      Everything else with NPR_TYPE == PAG
+
+    Notes:
+    - Ensures NO 'Other' category.
+    - Designed so (Filter + Rockfill + Waste_NAG + Waste_PAG) == Total.
+    - Waste categories reconcile to official rollups when no restrictive filters are applied.
     """
     litho = str(row.get("LITHO", "")).strip().lower()
     w = str(row.get("WEATHERING", "")).strip().lower()
     npr = str(row.get("NPR_TYPE", "")).strip().upper()
     co3 = row.get("CO3_PCT", np.nan)
 
-    # Normalize weathering (treat anything not aw_1/aw_2 as aw_3+ if it matches aw_3/aw_4/etc.)
-    is_aw12 = w in ["aw_1", "aw_2"]
-    is_aw3plus = w.startswith("aw_") and (w not in ["aw_1", "aw_2"])  # aw_3, aw_4, ...
+    is_intrusive_aw12_npag = (litho in ["mdi", "gbdi"]) and (w in ["aw_1", "aw_2"]) and (npr == "NPAG")
 
-    is_intrusive = litho in ["mdi", "gbdi"]
-    is_mf_cv = litho in ["mf", "cv"]
-
-    # Intrusives (mdi/gbdi) - NPAG + AW1/2
-    if is_intrusive and is_aw12 and npr == "NPAG":
+    if is_intrusive_aw12_npag:
         if pd.isna(co3):
-            return "Other"
+            # If CO3 missing, keep it conservative in Waste_NAG
+            return "Waste_NAG"
         return "Filter" if float(co3) < float(co3_threshold) else "Rockfill"
 
-    # MF/CV - AW3+ split by NPR_TYPE
-    if is_mf_cv and is_aw3plus:
-        if npr == "NPAG":
-            return "Waste_NAG"
-        if npr == "PAG":
-            return "Waste_PAG"
-
-    return "Other"
+    # Everything else -> Waste split by NPR_TYPE
+    return "Waste_NAG" if npr == "NPAG" else "Waste_PAG"
 
 def barplot(
     df_plot: pd.DataFrame,
@@ -547,28 +550,34 @@ with tabs[10]:
 with tabs[11]:
     st.markdown("## Summary — Raw Litho-Based Destination (Sensitivity-Driven)")
     st.caption(
-        "This summary reclassifies material into Filter/Rockfill/Waste_NAG/Waste_PAG using raw lithology, "
-        "weathering, NPR type, and the CO3 threshold slider. All results are driven by the current sidebar filters."
+        "This summary reclassifies material into Filter/Rockfill/Waste_NAG/Waste_PAG using LITHO, WEATHERING, "
+        "NPR_TYPE, and the CO3 threshold slider. All results are driven by the current sidebar filters."
     )
 
     # Apply raw classification using current CO3 threshold slider (co3_thr)
     sumdf = df.copy()
     sumdf["DEST_RAW"] = sumdf.apply(assign_raw_destination, axis=1, co3_threshold=co3_thr)
 
-    # Tabulation by DEST_RAW (like Base Case) + totals
+    # Force category order (only 4 categories)
+    dest_order = ["Filter", "Rockfill", "Waste_NAG", "Waste_PAG"]
+    sumdf["DEST_RAW"] = pd.Categorical(sumdf["DEST_RAW"], categories=dest_order, ordered=True)
+
+    # Tabulation by DEST_RAW (like Base Case)
     summary = (
         sumdf.groupby("DEST_RAW", dropna=False)[["VOLUME", "TONNES", "TONNES_MT"]]
         .sum()
         .reset_index()
-        .sort_values("TONNES_MT", ascending=False)
     )
+    summary["DEST_RAW"] = summary["DEST_RAW"].astype(str)
 
-    # Add subtotal %
+    # Ensure all 4 categories exist even if filtered out
+    summary = summary.set_index("DEST_RAW").reindex(dest_order, fill_value=0.0).reset_index()
+
+    # Subtotal %
     total_mt = summary["TONNES_MT"].sum()
     summary["PCT_OF_SUBTOTAL"] = np.where(total_mt > 0, 100.0 * summary["TONNES_MT"] / total_mt, 0.0)
 
-    # Build "Totals in all directions" view (rows, cols, grand total)
-    # We'll create a compact pivot with DEST_RAW as rows and metrics as columns + total row.
+    # Total row
     totals_row = pd.DataFrame({
         "DEST_RAW": ["TOTAL"],
         "VOLUME": [summary["VOLUME"].sum()],
@@ -582,9 +591,8 @@ with tabs[11]:
     st.dataframe(format_professional_table(summary_with_total), use_container_width=True, hide_index=True)
     download_csv(summary_with_total, "summary_raw_destination.csv", "Download Summary (CSV)")
 
-    # Plot (Mt) - keep same style
     barplot(
-        summary,  # exclude TOTAL for plot
+        summary,  # exclude TOTAL in plot
         x="DEST_RAW",
         y="TONNES_MT",
         title="Summary — Tonnes (Mt) by Raw Destination (DEST_RAW)",
@@ -593,6 +601,45 @@ with tabs[11]:
         y_is_int=False,
     )
 
-    # Optional: show underlying rule counts (quick sanity)
-    with st.expander("Diagnostics — rows by DEST_RAW", expanded=False):
-        st.write(sumdf["DEST_RAW"].value_counts(dropna=False))
+    st.divider()
+
+    # -----------------------------
+    # Diagnostics: Official vs Calculated (Raw-litho rules)
+    # -----------------------------
+    st.markdown("### Summary Sanity Check — Official vs Calculated (Mt)")
+    st.caption(
+        "Comparison between official rollups and the recalculated totals using the LITHO/WEATHERING/NPR_TYPE/CO3_PCT rules."
+    )
+
+    official_summary = pd.DataFrame({
+        "DESTINATION": ["Filter", "Rockfill", "Waste_NAG", "Waste_PAG", "TOTAL"],
+        "OFFICIAL_TONNES_MT": [68.2335, 18.9846, 70.0908, 7.19745, 164.5064],
+    })
+
+    calc_summary = summary.copy()
+    calc_summary = calc_summary.rename(columns={"DEST_RAW": "DESTINATION", "TONNES_MT": "CALC_TONNES_MT"})
+    calc_summary = calc_summary[["DESTINATION", "CALC_TONNES_MT"]].copy()
+
+    calc_total = pd.DataFrame({
+        "DESTINATION": ["TOTAL"],
+        "CALC_TONNES_MT": [summary["CALC_TONNES_MT"].sum()],
+    })
+    calc_summary = pd.concat([calc_summary, calc_total], ignore_index=True)
+
+    check2 = official_summary.merge(calc_summary, on="DESTINATION", how="left")
+    check2["CALC_TONNES_MT"] = check2["CALC_TONNES_MT"].fillna(0.0)
+    check2["DELTA_MT"] = check2["CALC_TONNES_MT"] - check2["OFFICIAL_TONNES_MT"]
+    check2["DELTA_%"] = np.where(
+        check2["OFFICIAL_TONNES_MT"] > 0,
+        100.0 * check2["DELTA_MT"] / check2["OFFICIAL_TONNES_MT"],
+        0.0,
+    )
+
+    # Keep decimals only for this sanity-style table
+    check2_display = check2.copy()
+    check2_display[["OFFICIAL_TONNES_MT", "CALC_TONNES_MT", "DELTA_MT", "DELTA_%"]] = (
+        check2_display[["OFFICIAL_TONNES_MT", "CALC_TONNES_MT", "DELTA_MT", "DELTA_%"]].round(3)
+    )
+
+    st.dataframe(check2_display, use_container_width=True, hide_index=True)
+    download_csv(check2, "summary_sanity_check_official_vs_calc.csv", "Download Summary sanity check (CSV)")
