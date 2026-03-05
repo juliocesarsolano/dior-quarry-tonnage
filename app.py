@@ -43,8 +43,7 @@ import plotly.express as px
 # Dashboard config
 # -----------------------------
 st.set_page_config(
-    page_title="Block Model Sensitivity"
-st.title(TITLE)",
+    page_title="Block Model Sensitivity",
     layout="wide",
 )
 
