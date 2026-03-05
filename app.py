@@ -621,8 +621,8 @@ with tabs[11]:
     calc_summary = calc_summary[["DESTINATION", "CALC_TONNES_MT"]].copy()
 
     calc_total = pd.DataFrame({
-        "DESTINATION": ["TOTAL"],
-        "CALC_TONNES_MT": [summary["CALC_TONNES_MT"].sum()],
+    "DESTINATION": ["TOTAL"],
+    "CALC_TONNES_MT": [calc_summary["CALC_TONNES_MT"].sum()],
     })
     calc_summary = pd.concat([calc_summary, calc_total], ignore_index=True)
 
