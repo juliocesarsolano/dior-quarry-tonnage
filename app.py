@@ -344,7 +344,7 @@ st.caption("Sanity check is computed using DESTINATION_ROLLUP to match the offic
 
 official = pd.DataFrame({
     "DESTINATION_ROLLUP": ["filter", "rockfill", "waste_nag", "waste_pag", "TOTAL"],
-    "OFFICIAL_TONNES_MT": [68.233, 18.9846, 70.0908, 7.19745, 164.5064],
+    "OFFICIAL_TONNES_MT": [68.2335, 18.9846, 70.0908, 7.19745, 164.5064],
 })
 
 calc = (
