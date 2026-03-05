@@ -265,6 +265,42 @@ def tabulate(df: pd.DataFrame, group_cols: list[str]) -> pd.DataFrame:
     agg["PCT_OF_SUBTOTAL"] = np.where(total_mt > 0, 100.0 * agg["TONNES_MT"] / total_mt, 0.0)
     return agg.sort_values("TONNES_MT", ascending=False)
 
+def assign_raw_destination(row: pd.Series, co3_threshold: float = 1.0) -> str:
+    """
+    Raw-litho destination classification (for Summary tab) based on:
+      - Filter:  (mdi|gbdi) + (aw_1|aw_2) + NPAG + CO3 < threshold
+      - Rockfill:(mdi|gbdi) + (aw_1|aw_2) + NPAG + CO3 >= threshold
+      - Waste_NAG: (mf|cv) + (aw_3 or worse) + NPAG
+      - Waste_PAG: (mf|cv) + (aw_3 or worse) + PAG
+    Everything else -> Other
+    """
+    litho = str(row.get("LITHO", "")).strip().lower()
+    w = str(row.get("WEATHERING", "")).strip().lower()
+    npr = str(row.get("NPR_TYPE", "")).strip().upper()
+    co3 = row.get("CO3_PCT", np.nan)
+
+    # Normalize weathering (treat anything not aw_1/aw_2 as aw_3+ if it matches aw_3/aw_4/etc.)
+    is_aw12 = w in ["aw_1", "aw_2"]
+    is_aw3plus = w.startswith("aw_") and (w not in ["aw_1", "aw_2"])  # aw_3, aw_4, ...
+
+    is_intrusive = litho in ["mdi", "gbdi"]
+    is_mf_cv = litho in ["mf", "cv"]
+
+    # Intrusives (mdi/gbdi) - NPAG + AW1/2
+    if is_intrusive and is_aw12 and npr == "NPAG":
+        if pd.isna(co3):
+            return "Other"
+        return "Filter" if float(co3) < float(co3_threshold) else "Rockfill"
+
+    # MF/CV - AW3+ split by NPR_TYPE
+    if is_mf_cv and is_aw3plus:
+        if npr == "NPAG":
+            return "Waste_NAG"
+        if npr == "PAG":
+            return "Waste_PAG"
+
+    return "Other"
+
 def barplot(
     df_plot: pd.DataFrame,
     x: str,
@@ -397,7 +433,7 @@ st.divider()
 # -----------------------------
 # Tabs: Case Base + Q1..Q10
 # -----------------------------
-tabs = st.tabs(["Base Case Q3.2025", "Q1", "Q2", "Q3", "Q4", "Q5", "Q6", "Q7", "Q8", "Q9", "Q10"])
+tabs = st.tabs(["Base Case Q3.2025", "Q1", "Q2", "Q3", "Q4", "Q5", "Q6", "Q7", "Q8", "Q9", "Q10", "Summary"])
 
 # ---- Case Base ----
 with tabs[0]:
@@ -506,3 +542,57 @@ with tabs[10]:
     st.dataframe(format_professional_table(t10), use_container_width=True, hide_index=True)
     download_csv(t10, "q10_gbdi_npag_aw12_co3.csv", "Download Q10 (CSV)")
     barplot(t10, x="WEATHERING", y="TONNES_MT", title="Q10 — gbdi NPAG Tonnes (Mt) by WEATHERING", color="CO3_BIN")
+    
+# ---- Summary ----
+with tabs[11]:
+    st.markdown("## Summary — Raw Litho-Based Destination (Sensitivity-Driven)")
+    st.caption(
+        "This summary reclassifies material into Filter/Rockfill/Waste_NAG/Waste_PAG using raw lithology, "
+        "weathering, NPR type, and the CO3 threshold slider. All results are driven by the current sidebar filters."
+    )
+
+    # Apply raw classification using current CO3 threshold slider (co3_thr)
+    sumdf = df.copy()
+    sumdf["DEST_RAW"] = sumdf.apply(assign_raw_destination, axis=1, co3_threshold=co3_thr)
+
+    # Tabulation by DEST_RAW (like Base Case) + totals
+    summary = (
+        sumdf.groupby("DEST_RAW", dropna=False)[["VOLUME", "TONNES", "TONNES_MT"]]
+        .sum()
+        .reset_index()
+        .sort_values("TONNES_MT", ascending=False)
+    )
+
+    # Add subtotal %
+    total_mt = summary["TONNES_MT"].sum()
+    summary["PCT_OF_SUBTOTAL"] = np.where(total_mt > 0, 100.0 * summary["TONNES_MT"] / total_mt, 0.0)
+
+    # Build "Totals in all directions" view (rows, cols, grand total)
+    # We'll create a compact pivot with DEST_RAW as rows and metrics as columns + total row.
+    totals_row = pd.DataFrame({
+        "DEST_RAW": ["TOTAL"],
+        "VOLUME": [summary["VOLUME"].sum()],
+        "TONNES": [summary["TONNES"].sum()],
+        "TONNES_MT": [summary["TONNES_MT"].sum()],
+        "PCT_OF_SUBTOTAL": [100.0 if total_mt > 0 else 0.0],
+    })
+
+    summary_with_total = pd.concat([summary, totals_row], ignore_index=True)
+
+    st.dataframe(format_professional_table(summary_with_total), use_container_width=True, hide_index=True)
+    download_csv(summary_with_total, "summary_raw_destination.csv", "Download Summary (CSV)")
+
+    # Plot (Mt) - keep same style
+    barplot(
+        summary,  # exclude TOTAL for plot
+        x="DEST_RAW",
+        y="TONNES_MT",
+        title="Summary — Tonnes (Mt) by Raw Destination (DEST_RAW)",
+        color=None,
+        y_decimals=3,
+        y_is_int=False,
+    )
+
+    # Optional: show underlying rule counts (quick sanity)
+    with st.expander("Diagnostics — rows by DEST_RAW", expanded=False):
+        st.write(sumdf["DEST_RAW"].value_counts(dropna=False))
