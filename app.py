@@ -43,11 +43,12 @@ import plotly.express as px
 # Dashboard config
 # -----------------------------
 st.set_page_config(
-    page_title="Dior Quarry - NTSF (Q3.2025 Updated Model)",
+    page_title="Block Model Sensitivity"
+st.title(TITLE)",
     layout="wide",
 )
 
-TITLE = "Diorite Quarry - NTSF (Q3.2025 Updated Model)"
+TITLE = "Block Model Sensitivity"
 st.title(TITLE)
 
 # Palette (RGB)
@@ -99,7 +100,7 @@ def format_professional_table(df_in: pd.DataFrame) -> pd.DataFrame:
 uploaded = st.file_uploader("Upload Excel (.xlsx)", type=["xlsx"], key="main_file_upload")
 
 if uploaded is None:
-    st.warning("Please upload the Q3.2025 Updated Model Excel file to proceed.")
+    st.warning("Please upload the Excel (.xlsx) file to proceed.")
     st.stop()
 
 data = load_data(uploaded)
@@ -272,7 +273,7 @@ def barplot(
     title: str,
     color: str | None = None,
     y_decimals: int = 3,      # default for Mt
-    y_is_int: bool = False    # for TONNES/VOLUME style plots
+    y_is_int: bool = False    # for TONNES/VOLUME
 ):
     if df_plot.empty:
         st.warning("No data to plot.")
@@ -340,7 +341,7 @@ st.divider()
 # Sanity check (official totals)
 # -----------------------------
 st.markdown("### Sanity Check — Destination Tonnes (Mt) [Official vs Calculated]")
-st.caption("Sanity check is computed using DESTINATION_ROLLUP to match the official categories (Filter/Rockfill/Waste Nag/Waste Pag).")
+st.caption("Sanity check is computed using DESTINATION_ROLLUP to match the official categories.")
 
 official = pd.DataFrame({
     "DESTINATION_ROLLUP": ["filter", "rockfill", "waste_nag", "waste_pag", "TOTAL"],
@@ -401,7 +402,7 @@ tabs = st.tabs(["Base Case Q3.2025", "Q1", "Q2", "Q3", "Q4", "Q5", "Q6", "Q7", "
 
 # ---- Case Base ----
 with tabs[0]:
-    st.markdown("## Base Case Resource Model Q3.2025Upd Buff10")
+    st.markdown("## Base Case")
     st.caption("Volume & tonnes by normalized DESTINATION bins (inside current reserves pit).")
 
     base = tabulate(df, ["DESTINATION_NORM"])
