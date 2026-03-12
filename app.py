@@ -227,7 +227,7 @@ def build_filters_sidebar(df: pd.DataFrame):
         st.header("Filters (Current Reserves Pit)")
         st.caption("All rows are assumed to be inside current reserves pit; filters are for sensitivity checks.")
 
-        co3_thr = st.slider("CO3 threshold (%)", 0.0, 5.0, 1.0, 0.1)
+        co3_thr = st.slider("CO3 threshold (%)", 0.0, 5.0, 1.0, 0.01)
         filters_used["CO3_threshold_pct"] = co3_thr
 
         if "DESTINATION_NORM" in dff.columns:
